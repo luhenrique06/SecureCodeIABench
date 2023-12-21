@@ -1,0 +1,18 @@
+name: Conviso SAST
+on:
+ push:
+   branches: [ main ]
+ pull_request:
+   branches: [ main ]
+jobs:
+ conviso-sast:
+   runs-on: ubuntu-latest
+   container:
+     image: convisoappsec/flowcli:unstable
+     env:
+        FLOW_COMPANY_ID: ${{ secrets.FLOW_COMPANY_ID }}
+        FLOW_API_KEY: ${{ secrets.CONVISO_API_KEY }}
+   steps:
+   - uses: actions/checkout@v2
+   - name: Run AST
+     run: conviso ast run
