@@ -1,0 +1,125 @@
+name: exemploCI
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build:
+    name: 'build'
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.generate_tag.outputs.sha }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: "Setup Node"
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install
+      - run: npm test
+
+      - name: generate tags
+        id: generate_tag
+        run: |
+          SHA=$(echo $GITHUB_SHA | head -c7)
+          echo "sha=$SHA" >> $GITHUB_OUTPUT
+
+      # - name: Login container Registry Docker
+      #   uses: docker/login-action@v3
+      #   with:
+      #     username: ${{ secrets.DOCKERHUB_USERNAME }}
+      #     password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # - name: Docker build image
+      #   run: docker build -t luherique/exemplo-ci-api:${{ steps.generate_tag.outputs.sha }} .
+
+      # - name: Push image
+      #   run: docker push luherique/exemplo-ci-api:${{ steps.generate_tag.outputs.sha }}
+
+  conviso-sast:
+    name: "Conviso SAST"
+    runs-on: ubuntu-latest
+    container:
+      image: convisoappsec/convisocli
+      env:
+        CONVISO_API_KEY: ${{ secrets.CONVISO_API_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run AST
+        run: conviso ast run --vulnerability-auto-close --company-id 908
+
+      # - name: Security Gate Check
+      #   run: |
+      #     cat <<EOF > security-rules.yml
+      #     rules:
+      #       - from: any
+      #         severity:
+      #           critical:
+      #             maximum: 0
+      #           high:
+      #             maximum: 0
+      #           medium:
+      #             maximum: 0
+      #           low:
+      #             maximum: 0
+      #     EOF
+      #     conviso vulnerability assert-security-rules --rules-file security-rules.yml --company-id 908
+
+  # conviso-container-scan:
+  #   name: "Conviso Container Scan"
+  #   runs-on: ubuntu-latest
+  #   needs: build
+  #   container:
+  #     image: convisoappsec/convisocli:latest
+  #     env:
+  #       CONVISO_API_KEY: ${{ secrets.CONVISO_API_KEY }}
+
+  #   steps:
+  #     - uses: actions/checkout@v4
+
+  #     - name: Container Scan
+
+  
+
+    
+  #       run: |
+  #         export IMAGE_NAME="luherique/exemplo-ci-api"
+  #         export IMAGE_TAG="${{ needs.build.outputs.sha }}"
+  #         conviso container run "$IMAGE_NAME:$IMAGE_TAG" --company-id 908
+
+
+  deployaws:
+    name: deploy
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: "Configure AWS Credentials"
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{secrets.AWS_ACCESS_KEY_ID}}
+          aws-secret-access-key: ${{secrets.AWS_SECRET_ACCESS_KEY}}
+          aws-region: us-west-2
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build, tag, and push docker image to Amazon ECR
+        run: |
+          docker build -t exemplo-ci-api:${{ needs.build.outputs.sha }} .
+          docker tag exemplo-ci-api:${{ needs.build.outputs.sha }} \
+          ${{ steps.login-ecr.outputs.registry }}/exemplo-ci-api:${{ needs.build.outputs.sha }}
+          docker push ${{ steps.login-ecr.outputs.registry }}/exemplo-ci-api:${{ needs.build.outputs.sha }}
+
